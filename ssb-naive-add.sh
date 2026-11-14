@@ -49,6 +49,24 @@ else
     echo "ВНИМАНИЕ: каталог rule-set на ноде не найден — rule-sets качаются с GitHub (медленнее)."
     sed -i "s|RULESETPATH|rulesetpath-missing|g" "$TPL"
 fi
+# пиннинг IP ноды (anti-DNS-spoof): подставляем IP резолвом домена;
+# если домен не резолвится — пиннинг отключается, конфиг не ломается
+nodeip=$(getent ahostsv4 "${domain}" 2>/dev/null | awk '{print $1; exit}')
+if [[ -n $nodeip ]]; then
+    sed -i "s|NODEIP|${nodeip}|g" "$TPL"
+else
+    python3 - "$TPL" <<'PYIP'
+import json, sys
+p = sys.argv[1]
+c = json.load(open(p))
+for r in c.get("route", {}).get("rules", []):
+    if "ip_cidr" in r:
+        r["ip_cidr"] = [x for x in r["ip_cidr"] if x != "NODEIP"]
+        if not r["ip_cidr"]:
+            del r["ip_cidr"]
+json.dump(c, open(p, "w"), ensure_ascii=False)
+PYIP
+fi
 
 # фильтр: оставить только rule_set, которые реально доступны (нода -> GitHub fallback),
 # и убрать их теги из route/dns-правил, где они не найдены
